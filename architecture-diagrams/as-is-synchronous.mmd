@@ -1,0 +1,37 @@
+flowchart TD
+    subgraph Client ["Khách hàng"]
+        U["Người dùng (Mobile / Web)<br/>Flash Sale: 12,500 đơn/giờ"]
+    end
+
+    subgraph Core ["Luồng Giao dịch Đồng bộ Hiện tại (Synchronous HTTP REST)"]
+        GW["API Gateway"]
+        OS["Order Service<br/>Treo Thread chờ tất cả phản hồi"]
+        IS["Inventory Service<br/>Race Condition khi Scale-out"]
+        PS["Payment Service<br/>Phụ thuộc đối tác thứ 3"]
+    end
+
+    subgraph Aux ["Luồng Phụ trợ (Bị gắn chặt vào Core Path)"]
+        NS["Notification Service<br/>Chờ SMTP/SMS (1-2s)"]
+        AS["Analytics Service<br/>Heavy DB Write làm nghẽn CPU/IO"]
+    end
+
+    subgraph External ["Đối tác Bên ngoài"]
+        PG["Cổng Thanh toán / Ngân hàng<br/>(Độ trễ 2-5s hoặc Timeout)"]
+        SMTP["SMTP / SMS Gateway"]
+    end
+
+    U -->|"1. POST /orders (Đợi 3.5s - Timeout)"| GW
+    GW -->|"2. Forward HTTP"| OS
+    OS -->|"3. Gọi đồng bộ trừ kho"| IS
+    OS -->|"4. Gọi đồng bộ thanh toán (Đợi)"| PS
+    PS -->|"5. HTTP Request (Chậm/Lỗi)"| PG
+    OS -->|"6. Gọi đồng bộ gửi Email (Đợi 1-2s)"| NS
+    NS -->|"7. Kết nối SMTP"| SMTP
+    OS -->|"8. Gọi đồng bộ ghi BI Log (Đợi)"| AS
+
+    style OS fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style PS fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    style IS fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    style NS fill:#fce4ec,stroke:#ad1457,stroke-width:2px
+    style AS fill:#fce4ec,stroke:#ad1457,stroke-width:2px
+

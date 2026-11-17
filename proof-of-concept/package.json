@@ -1,0 +1,21 @@
+{
+  "name": "ecommerce-event-driven-poc",
+  "version": "1.0.0",
+  "description": "Proof of Concept (PoC) Kiến trúc Event-Driven với Apache Kafka cho Hệ thống E-commerce",
+  "main": "start-all.js",
+  "scripts": {
+    "start": "node start-all.js",
+    "order": "node order-service/index.js",
+    "inventory": "node inventory-service/index.js",
+    "payment": "node payment-service/index.js",
+    "notification": "node notification-service/index.js",
+    "analytics": "node analytics-service/index.js",
+    "verify": "node verify-proofs.js",
+    "benchmark": "node ../load-testing/benchmark-local.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "kafkajs": "^2.2.4"
+  }
+}
+

@@ -1,0 +1,75 @@
+flowchart TD
+    subgraph Client ["Khách hàng"]
+        U["Người dùng (Mobile / Web)"]
+    end
+
+    subgraph CoreIngress ["Tầng Tiếp nhận Đơn hàng (Non-blocking)"]
+        GW["API Gateway"]
+        OS["Order Service"]
+        ODB[("Order DB<br/>(Status: PENDING)")]
+    end
+
+    subgraph KafkaCluster ["Apache Kafka Cluster (KRaft)"]
+        subgraph OrderTopic ["Topic: ecommerce.order.events (Key = product_id)"]
+            P0["Partition 0<br/>(VD: iPhone 16 - ID 999)"]
+            P1["Partition 1<br/>(VD: AirPods Pro - ID 888)"]
+            P2["Partition 2<br/>(VD: MacBook Air - ID 777)"]
+        end
+        RT["Topic: ecommerce.payment.retry<br/>(Exponential Backoff)"]
+        DLQ["Topic: ecommerce.payment.dlq<br/>(Lưu trữ lỗi tập trung)"]
+        IT["Topic: ecommerce.inventory.events<br/>(INVENTORY_UPDATED)"]
+        PT["Topic: ecommerce.payment.events<br/>(PAYMENT_SUCCEEDED / FAILED)"]
+    end
+
+    subgraph InventoryGroup ["Consumer Group: inventory-group (Loại bỏ Race Condition)"]
+        I0["Inventory Pod 1<br/>(Đọc tuần tự FIFO Partition 0)"]
+        I1["Inventory Pod 2<br/>(Đọc tuần tự FIFO Partition 1)"]
+        I2["Inventory Pod 3<br/>(Đọc tuần tự FIFO Partition 2)"]
+        IDB[("Inventory DB")]
+    end
+
+    subgraph PaymentGroup ["Consumer Group: payment-group (Xử lý Thanh toán & Retry)"]
+        PW["Payment Worker Pods"]
+        PG["Cổng Thanh toán Đối tác"]
+    end
+
+    subgraph NotifGroup ["Consumer Group: notification-group (Độc lập hoàn toàn)"]
+        NW["Notification Worker Pods"]
+    end
+
+    subgraph AnalyticsGroup ["Consumer Group: analytics-bi-group (Tách biệt IO & Data Replay)"]
+        AW["Analytics Worker Pods<br/>(Pull theo Batch / Off-peak)"]
+        DW[("Data Warehouse / ClickHouse")]
+    end
+
+    U -->|"1. POST /api/v1/orders/async"| GW
+    GW -->|"2. Chuyển tiếp"| OS
+    OS -->|"3. Lưu đơn (PENDING)"| ODB
+    OS -->|"4. Publish Event (Key = product_id)"| OrderTopic
+    OS -.->|"5. Trả về ngay 202 Accepted (Không chờ downstream)"| U
+
+    P0 ==>|"Gán cố định 1-1"| I0
+    P1 ==>|"Gán cố định 1-1"| I1
+    P2 ==>|"Gán cố định 1-1"| I2
+    I0 & I1 & I2 -->|"Cập nhật tuần tự (Không cần Lock)"| IDB
+    I0 & I1 & I2 -->|"Publish INVENTORY_UPDATED"| IT
+
+    OrderTopic -->|"Pull độc lập"| PW
+    PW -->|"Gọi API đối tác"| PG
+    PW -->|"Publish PAYMENT_SUCCEEDED / FAILED"| PT
+    PW -.->|"Lỗi tạm thời"| RT
+    RT -.->|"Thử lại sau Backoff"| PW
+    PW -.->|"Quá số lần thử"| DLQ
+
+    OrderTopic -->|"Pull độc lập (Real-time)"| NW
+    OrderTopic & IT & PT -->|"Pull theo Batch (Không ảnh hưởng Core)"| AW
+    AW -->|"Ghi Batch"| DW
+
+    style OrderTopic fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style OS fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style I0 fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style I1 fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style I2 fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style RT fill:#fff8e1,stroke:#f57f17,stroke-width:2px
+    style DLQ fill:#ffebee,stroke:#c62828,stroke-width:2px
+
